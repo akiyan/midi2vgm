@@ -4,7 +4,7 @@ This directory contains text presets and notes only.
 
 The public repository tracks only text presets and notes:
 
-- `adjustments.txt` is an example per-song flag file for `genallbgm.py --adjustments`.
+- `adjustments.txt` is a historical example of per-song conversion notes.
 - `annotations.md` is a human-readable catalog from the original conversion
   work and can be used as an example of documenting a MIDI set.
 

@@ -109,7 +109,7 @@
 
 ## 変換メモ
 
-- `scripts/genallbgm.py` の対象は上記 43 曲すべて。
-- 既定の変換は 3ch PCM ドラム付き。`genallbgm.py --adjustments` に渡した調整ファイルで個別指定する。
+- 元プロジェクトの一括変換対象は上記 43 曲すべて。
+- 既定の変換は 3ch PCM ドラム付き。個別調整は `genvgm.py` のオプションで直接指定する。
 - 現在の個別調整は `02_introduction` の `bell+PSG pcm-shot=auto+4`。
 - `res/resources.res` に ROM へ組み込まれているのは現時点では一部の曲のみ。全曲を使う場合は `res/bgm/*.vgm` 生成とリソース定義の追加が必要。
