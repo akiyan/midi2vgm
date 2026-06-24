@@ -262,7 +262,7 @@ else:
 # YM2612 拡張機能を活用: op ごとに "dt"(DT1 デチューン 0-7。1..3=+/5..7=-)・"rs"(レート
 # スケーリング 0-3。高音ほど EG が速い＝実楽器的)。patch ごとに "fms"(LFO ビブラート量 0-7)。
 # 持続音(笛/弦/リード/ブラス)は並行キャリアを ± デチューンして厚み/コーラスを出し、軽い FMS で
-# 表情を付ける。打弦/打鍵(bell/piano/pluck)は rs を上げ高音の減衰を速める。bass は素のまま(タイト)。
+# 表情を付ける。打弦/打鍵(bell/piano/guitar/pluck)は rs を上げ高音の減衰を速める。bass は素のまま(タイト)。
 PATCH = {
     "flute": {
         "alg": 7, "fb": 0, "fms": 2, "op": [
@@ -328,6 +328,30 @@ PATCH = {
             {"mul": 1,  "tl": 0x05, "ar": 0x1F, "d1r": 0x09, "d2r": 0x03, "slrr": 0x66, "rs": 1},
             {"mul": 1,  "tl": 0x20, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x04, "slrr": 0x96, "rs": 1},
         ]},
+    # オルガン（GM prog 16-23）。減衰をほぼ持たない並列キャリアで、倍音を重ねて薄いドローバー感を出す。
+    "organ": {
+        "alg": 7, "fb": 2, "op": [
+            {"mul": 1, "tl": 0x08, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
+            {"mul": 2, "tl": 0x22, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 1},
+            {"mul": 3, "tl": 0x34, "ar": 0x16, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 5},
+            {"mul": 1, "tl": 0x14, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
+        ]},
+    # ベース系 GM prog 32-39 が最低音パートではない場合の受け皿。bass より少し丸く、短い減衰。
+    "bassgtr": {
+        "alg": 4, "fb": 2, "op": [
+            {"mul": 1, "tl": 0x18, "ar": 0x1F, "d1r": 0x0A, "d2r": 0x03, "slrr": 0x65},
+            {"mul": 2, "tl": 0x26, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x04, "slrr": 0x75, "rs": 1},
+            {"mul": 1, "tl": 0x06, "ar": 0x1F, "d1r": 0x08, "d2r": 0x02, "slrr": 0x54},
+            {"mul": 1, "tl": 0x12, "ar": 0x1F, "d1r": 0x09, "d2r": 0x03, "slrr": 0x64},
+        ]},
+    # ギター（GM prog 24-31）。pluck より胴鳴りを少し残す。ナイロン/クリーン系の伴奏を想定。
+    "guitar": {
+        "alg": 4, "fb": 3, "op": [
+            {"mul": 1, "tl": 0x24, "ar": 0x1F, "d1r": 0x0E, "d2r": 0x05, "slrr": 0x96, "dt": 1},
+            {"mul": 3, "tl": 0x34, "ar": 0x1F, "d1r": 0x10, "d2r": 0x07, "slrr": 0xB7, "dt": 5, "rs": 1},
+            {"mul": 1, "tl": 0x08, "ar": 0x1F, "d1r": 0x0B, "d2r": 0x04, "slrr": 0x76, "rs": 1},
+            {"mul": 2, "tl": 0x1A, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x05, "slrr": 0x96, "rs": 1},
+        ]},
     # ギター/撥弦（GM prog 24-31）。明るい倍音（3x）＋速い減衰の撥弦。pluck。op 順 [op1,op3,op2,op4]。
     # rs=2 で高音ほど速い減衰。
     "pluck": {
@@ -337,16 +361,37 @@ PATCH = {
             {"mul": 1, "tl": 0x06, "ar": 0x1F, "d1r": 0x0E, "d2r": 0x06, "slrr": 0xA7, "rs": 2},
             {"mul": 2, "tl": 0x1C, "ar": 0x1F, "d1r": 0x0E, "d2r": 0x06, "slrr": 0xA7, "rs": 2},
         ]},
+    # シンセリード（GM prog 80-87）。並列キャリアに軽いデチューンと強めの FMS。
+    "synthlead": {
+        "alg": 7, "fb": 3, "fms": 4, "op": [
+            {"mul": 1, "tl": 0x0C, "ar": 0x16, "d1r": 0x03, "d2r": 0x01, "slrr": 0x87},
+            {"mul": 2, "tl": 0x2A, "ar": 0x15, "d1r": 0x03, "d2r": 0x01, "slrr": 0x97, "dt": 1},
+            {"mul": 3, "tl": 0x3A, "ar": 0x13, "d1r": 0x02, "d2r": 0x01, "slrr": 0xA7, "dt": 5},
+            {"mul": 1, "tl": 0x12, "ar": 0x16, "d1r": 0x03, "d2r": 0x01, "slrr": 0x87, "dt": 6},
+        ]},
+    # パッド/FX（GM prog 88-103, 120-127）。遅めのアタックとデチューンで薄く敷く。
+    "pad": {
+        "alg": 7, "fb": 0, "fms": 2, "op": [
+            {"mul": 1, "tl": 0x18, "ar": 0x08, "d1r": 0x01, "d2r": 0x01, "slrr": 0xB7, "dt": 1},
+            {"mul": 2, "tl": 0x2C, "ar": 0x07, "d1r": 0x01, "d2r": 0x01, "slrr": 0xB7, "dt": 5},
+            {"mul": 4, "tl": 0x46, "ar": 0x06, "d1r": 0x01, "d2r": 0x01, "slrr": 0xC7, "dt": 2},
+            {"mul": 1, "tl": 0x10, "ar": 0x08, "d1r": 0x01, "d2r": 0x01, "slrr": 0xB7, "dt": 6},
+        ]},
 }
 def fm_patch_for(p):
     if 56 <= p <= 63: return "brass"
     if 64 <= p <= 71: return "clar"
     if 72 <= p <= 79: return "flute"
+    if 80 <= p <= 87: return "synthlead"
+    if 88 <= p <= 103 or 120 <= p <= 127: return "pad"
+    if 104 <= p <= 111: return "pluck"
+    if 112 <= p <= 119: return "bell"
     if 40 <= p <= 55: return "strings"
-    if 16 <= p <= 23: return "clar"
+    if 32 <= p <= 39: return "bassgtr"
+    if 16 <= p <= 23: return "organ"
     if 8 <= p <= 15:  return "bell"     # chromatic percussion（オルゴール/グロッケン/ヴィブラフォン）
     if p <= 7:        return "piano"    # ピアノ/エレピ（GM prog 0-7）
-    if 24 <= p <= 31: return "pluck"    # ギター/撥弦（GM prog 24-31）
+    if 24 <= p <= 31: return "guitar"   # ギター/撥弦（GM prog 24-31）
     return "flute"
 
 def fm_patch_for_channel(c):
@@ -452,9 +497,10 @@ if not NOPSG and max(0, len(non_bass) - len(psg_chs) - 6) > 0:
 fm_chs = [c for c in non_bass if c not in psg_chs]
 
 # FM 各チャンネルにパッチ固定。bass(1)+残り5 をパッチ群へ音符数比で配分
+fm_patch_of = {c: fm_patch_for_channel(c) for c in fm_chs}
 groups = {}                                   # patch_name -> [midi channels]
 for c in fm_chs:
-    groups.setdefault(fm_patch_for_channel(c), []).append(c)
+    groups.setdefault(fm_patch_of[c], []).append(c)
 def alloc_group_slots(groups, total):
     """パッチグループごとのFM本数を決める。
 
@@ -490,6 +536,20 @@ def alloc_group_slots(groups, total):
 fm_total_slots = 5
 fm_slots = fm_total_slots - (1 if bass_ch is not None else 0)
 gcount = alloc_group_slots(groups, fm_slots) if groups else {}
+if groups and any(gcount.get(g, 0) == 0 for g in groups):
+    # パッチ種類が FM スロット数を超えた場合、空の Pool を作らないように
+    # 低優先グループを音符数の多い既存グループへ統合する。
+    keep = [g for g in groups if gcount.get(g, 0) > 0]
+    for g in sorted([g for g in groups if gcount.get(g, 0) == 0],
+                    key=lambda x: sum(notecnt[c] for c in groups[x])):
+        if not keep:
+            break
+        target = max(keep, key=lambda x: sum(notecnt[c] for c in groups[x]))
+        for c in groups[g]:
+            fm_patch_of[c] = target
+        groups[target].extend(groups[g])
+        del groups[g]
+    gcount = alloc_group_slots(groups, fm_slots) if groups else {}
 
 # ハードウェア FM チャンネル割付
 idx = 0
@@ -517,7 +577,7 @@ PSG_TONE = [0, 1, 2]
 # MIDI チャンネル -> ("fm",patch) / ("psg",) / ("noise",)
 route = {}
 if bass_ch is not None: route[bass_ch] = ("fm", "bass")
-for c in fm_chs:        route[c] = ("fm", fm_patch_for_channel(c))
+for c in fm_chs:        route[c] = ("fm", fm_patch_of[c])
 for c in psg_chs:       route[c] = ("psg",)
 
 # bell（オルゴール/鐘）の主旋律に PSG 矩形を同音ユニゾンで重ね、硬質な“ピン”でオルゴール感を足す。
