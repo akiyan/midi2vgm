@@ -6,7 +6,7 @@ SGDK の rescomp が `XGM name file.vgm` で VGM→XGM へ変換し、XGM ドラ
 GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)へ振り分ける。
 
   エンジン割り当て（パートごとに音色を固定＝一貫した音色）:
-    ドラム(ch10)                 → PSG ノイズ（音程→周期、減衰付き）
+    ドラム(ch10)                 → 既定は PCM。--psg-drums 時は PSG ノイズ（音程→周期、減衰付き）
     ベース(最低音域)             → FM（基音+2倍音のベース）
     撥弦(GM24-31) or リード筆頭   → PSG 矩形（明るい/プラック）。撥弦が無ければ最高音域の
                                    リード系を PSG に回し、PSG を活用しつつ FM の負荷も下げる
@@ -14,13 +14,13 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                                    （ブラス/リード/弦/パイプ＝それぞれ別倍音構成）
   和音は各プール内でボイス割当（空き無ければ最古を奪う）。ループ点は曲頭。
 
-  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--pcm-drums] [--fm6] [--sf2=PATH] [--atten=N]
-    --no-psg : PSG を一切使わず全パートを FM6ch に割り当てる（ドラムは省略）。
-    --pcm-drums: ch10 ドラムを FluidSynth+SoundFont 由来の VGM stream PCM として出力する
-                 （XGM2 変換時に PCM 化）。
+  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--sf2=PATH] [--atten=N]
+    --no-psg : PSG を一切使わず旋律パートを FM へ割り当てる（--psg-drums 併用時はドラム省略）。
+    ch10 ドラムは既定で FluidSynth+SoundFont 由来の VGM stream PCM として出力する
+    --psg-drums: ch10 ドラムを PSG ノイズで出力する。
     FM は SFX/PCM 余地として常に 1ch 空けるため最大5ch。
-    --fm6: 比較/選択用に FM6 まで BGM に使う。ドラムは PSG ノイズにするため --pcm-drums と併用しない。
-    --sf2=PATH : --pcm-drums で使う SoundFont（既定: $SOUNDFONT または default-GM.sf2）。
+    --fm6: 比較/選択用に FM6 まで BGM に使う。PCM ドラムとは併用できないため --psg-drums が必要。
+    --sf2=PATH : PCM ドラム / PCM shot で使う SoundFont（既定: $SOUNDFONT または検出した GM SoundFont）。
     --atten=N: FM 可聴オペレータの TL に N を加算して音量を下げる（TL は大きいほど小音量、
                1 ステップ約0.75dB。例: 6≒-4.5dB, 8≒-6dB）。
     --pcm-shot=auto|ch,ch...|auto+ch...: 短い装飾音パートを自動/手動選択し、空きPCM chへ薄く重ねる。
@@ -32,12 +32,18 @@ import psg_voice as pv     # PSG の表情（decay/ビブラート/音域）は 
 
 argv = [a for a in sys.argv[1:] if not a.startswith("--")]
 NOPSG = "--no-psg" in sys.argv
-PCM_DRUMS = "--pcm-drums" in sys.argv
+PSG_DRUMS = "--psg-drums" in sys.argv
+PCM_DRUMS = not PSG_DRUMS
 USE_FM6 = "--fm6" in sys.argv
 BELL_PSG = "--bell-psg" in sys.argv   # bell(オルゴール)主旋律に PSG 矩形を同音ユニゾンで重ねる
 ATTEN = 0
 PCM_SHOT_SPEC = ""
-SF2 = os.environ.get("SOUNDFONT", "/usr/share/sounds/sf2/default-GM.sf2")
+SF2_CANDIDATES = [
+    os.environ.get("SOUNDFONT"),
+    "/usr/share/sounds/sf2/default-GM.sf2",
+    "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+]
+SF2 = next((p for p in SF2_CANDIDATES if p and os.path.exists(p)), SF2_CANDIDATES[0] or SF2_CANDIDATES[1])
 for a in sys.argv:
     if a.startswith("--atten="):
         ATTEN = int(a.split("=", 1)[1])
@@ -46,9 +52,11 @@ for a in sys.argv:
     elif a.startswith("--pcm-shot="):
         PCM_SHOT_SPEC = a.split("=", 1)[1].strip().lower() or "auto"
 if len(argv) < 2:
-    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--pcm-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--sf2=PATH] [--atten=N]")
+    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--sf2=PATH] [--atten=N]")
+if "--pcm-drums" in sys.argv and PSG_DRUMS:
+    sys.exit("--pcm-drums and --psg-drums cannot be combined")
 if PCM_DRUMS and USE_FM6:
-    sys.exit("--fm6 cannot be combined with --pcm-drums; FM6 shares YM2612 ch6 with DAC/PCM")
+    sys.exit("--fm6 cannot be combined with PCM drums; use --psg-drums because FM6 shares YM2612 ch6 with DAC/PCM")
 MID, OUT = argv[0], argv[1]
 SONG = os.path.splitext(os.path.basename(MID))[0]
 YM_CLOCK = 7670453
@@ -352,6 +360,15 @@ PATCH = {
             {"mul": 1, "tl": 0x08, "ar": 0x1F, "d1r": 0x0B, "d2r": 0x04, "slrr": 0x76, "rs": 1},
             {"mul": 2, "tl": 0x1A, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x05, "slrr": 0x96, "rs": 1},
         ]},
+    # 歪みギター（GM prog 29-30）。2本の太いキャリアを軽くデチューンし、強めのFBと
+    # 中域寄りのモジュレータで、クリーンギターより潰れたリード/リフ感に寄せる。
+    "distguitar": {
+        "alg": 5, "fb": 6, "op": [
+            {"mul": 1, "tl": 0x14, "ar": 0x1F, "d1r": 0x04, "d2r": 0x01, "slrr": 0x86, "dt": 1},
+            {"mul": 2, "tl": 0x12, "ar": 0x1F, "d1r": 0x05, "d2r": 0x01, "slrr": 0x86, "dt": 5},
+            {"mul": 3, "tl": 0x2E, "ar": 0x1F, "d1r": 0x08, "d2r": 0x02, "slrr": 0xA7, "rs": 1},
+            {"mul": 1, "tl": 0x08, "ar": 0x1F, "d1r": 0x04, "d2r": 0x01, "slrr": 0x76, "dt": 6},
+        ]},
     # ギター/撥弦（GM prog 24-31）。明るい倍音（3x）＋速い減衰の撥弦。pluck。op 順 [op1,op3,op2,op4]。
     # rs=2 で高音ほど速い減衰。
     "pluck": {
@@ -391,7 +408,8 @@ def fm_patch_for(p):
     if 16 <= p <= 23: return "organ"
     if 8 <= p <= 15:  return "bell"     # chromatic percussion（オルゴール/グロッケン/ヴィブラフォン）
     if p <= 7:        return "piano"    # ピアノ/エレピ（GM prog 0-7）
-    if 24 <= p <= 31: return "guitar"   # ギター/撥弦（GM prog 24-31）
+    if 29 <= p <= 30: return "distguitar"   # Overdriven / Distortion Guitar
+    if 24 <= p <= 31: return "guitar"       # ギター/撥弦（GM prog 24-31）
     return "flute"
 
 def fm_patch_for_channel(c):
@@ -401,6 +419,30 @@ def fm_patch_for_channel(c):
     ):
         return "softlead"
     return fm_patch_for(p)
+
+GM_NAMES = [
+    "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano",
+    "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavinet",
+    "Celesta", "Glockenspiel", "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+    "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ", "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+    "Acoustic Guitar nylon", "Acoustic Guitar steel", "Electric Guitar jazz", "Electric Guitar clean",
+    "Electric Guitar muted", "Overdriven Guitar", "Distortion Guitar", "Guitar harmonics",
+    "Acoustic Bass", "Electric Bass finger", "Electric Bass pick", "Fretless Bass", "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+    "Violin", "Viola", "Cello", "Contrabass", "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+    "String Ensemble 1", "String Ensemble 2", "SynthStrings 1", "SynthStrings 2", "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit",
+    "Trumpet", "Trombone", "Tuba", "Muted Trumpet", "French Horn", "Brass Section", "SynthBrass 1", "SynthBrass 2",
+    "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax", "Oboe", "English Horn", "Bassoon", "Clarinet",
+    "Piccolo", "Flute", "Recorder", "Pan Flute", "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+    "Lead 1 square", "Lead 2 sawtooth", "Lead 3 calliope", "Lead 4 chiff", "Lead 5 charang", "Lead 6 voice", "Lead 7 fifths", "Lead 8 bass+lead",
+    "Pad 1 new age", "Pad 2 warm", "Pad 3 polysynth", "Pad 4 choir", "Pad 5 bowed", "Pad 6 metallic", "Pad 7 halo", "Pad 8 sweep",
+    "FX 1 rain", "FX 2 soundtrack", "FX 3 crystal", "FX 4 atmosphere", "FX 5 brightness", "FX 6", "FX 7 echoes", "FX 8 sci-fi",
+    "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", "Bag pipe", "Fiddle", "Shanai",
+    "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock", "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
+    "Guitar Fret Noise", "Breath Noise", "Seashore", "FX 4", "Telephone Ring", "Helicopter", "Applause", "Gunshot",
+]
+
+def gm_name(p):
+    return GM_NAMES[p] if 0 <= p < len(GM_NAMES) else "Unknown"
 
 # ============ エンジン/プール割り当て ============
 bass_ch = min(mel, key=lambda c: avgp[c]) if mel else None
@@ -498,6 +540,7 @@ fm_chs = [c for c in non_bass if c not in psg_chs]
 
 # FM 各チャンネルにパッチ固定。bass(1)+残り5 をパッチ群へ音符数比で配分
 fm_patch_of = {c: fm_patch_for_channel(c) for c in fm_chs}
+fm_initial_patch_of = dict(fm_patch_of)
 groups = {}                                   # patch_name -> [midi channels]
 for c in fm_chs:
     groups.setdefault(fm_patch_of[c], []).append(c)
@@ -579,6 +622,47 @@ route = {}
 if bass_ch is not None: route[bass_ch] = ("fm", "bass")
 for c in fm_chs:        route[c] = ("fm", fm_patch_of[c])
 for c in psg_chs:       route[c] = ("psg",)
+
+def midi_ch_label(c):
+    return f"ch{c + 1:02d}"
+
+def route_text(c):
+    if c == DRUM_CH:
+        if PCM_DRUMS:
+            return f"PCM drums ({PCM_VOICES} streams)"
+        if NOPSG:
+            return "omitted (drums need PCM drums or PSG noise)"
+        return "PSG noise"
+    r = route.get(c)
+    if r is None:
+        return "omitted (no output route)"
+    if r[0] == "psg":
+        if c in psg_echo_chs:
+            main = echo_main_chs[psg_echo_chs.index(c)]
+            return f"PSG square echo of {midi_ch_label(main)}"
+        return f"PSG square offload score={psg_score(c):.0f}"
+    patch = r[1]
+    slots = FM_OF.get(patch, [])
+    if c == bass_ch:
+        suffix = " sustain" if SUSTAIN_BASS else ""
+        return f"FM patch=bass slots={slots}{suffix}"
+    initial = fm_initial_patch_of.get(c, patch)
+    if initial != patch:
+        return f"FM patch={patch} slots={slots} (merged from {initial}; FM slots full)"
+    return f"FM patch={patch} slots={slots}"
+
+def part_summary_line(c):
+    p = prog.get(c, 0)
+    notes = notecnt.get(c, 0)
+    avg_note = "-" if c == DRUM_CH or c not in avgp else f"{avgp[c]:.1f}"
+    dur = "-" if c == DRUM_CH or c not in avgdur else f"{avgdur[c]:.3f}s"
+    vel = "-" if c == DRUM_CH or c not in avgv else f"{avgv[c]:.1f}"
+    role = "drums" if c == DRUM_CH else "bass" if c == bass_ch else "part"
+    prog_text = "-" if c == DRUM_CH else f"{p + 1:03d}({gm_name(p)})"
+    return (
+        f"    {midi_ch_label(c)} role={role} prog={prog_text} "
+        f"notes={notes} avg_note={avg_note} avg_dur={dur} avg_vel={vel} -> {route_text(c)}"
+    )
 
 # bell（オルゴール/鐘）の主旋律に PSG 矩形を同音ユニゾンで重ね、硬質な“ピン”でオルゴール感を足す。
 # adjustments.txt で 'bell+psg' 指定の曲だけ有効（--bell-psg）。末尾の矩形 1ch をユニゾン専用に予約し、
@@ -746,9 +830,9 @@ def render_drum_float(notes):
     notes = drum_key(notes)
     fs = shutil.which("fluidsynth")
     if fs is None:
-        raise SystemExit("--pcm-drums requires fluidsynth. Install: sudo apt-get install fluidsynth fluid-soundfont-gm")
+        raise SystemExit("PCM drums require fluidsynth. Install: sudo apt-get install fluidsynth fluid-soundfont-gm")
     if not os.path.exists(SF2):
-        raise SystemExit(f"--pcm-drums SoundFont not found: {SF2}")
+        raise SystemExit(f"PCM drums SoundFont not found: {SF2}")
 
     with tempfile.TemporaryDirectory() as td:
         suffix = "_".join(str(n) for n in notes)
@@ -1348,14 +1432,23 @@ struct.pack_into("<I", hdr, 0x14, gd3_pos - 0x14)
 struct.pack_into("<I", hdr, 0x34, DATA_OFF - 0x34)
 
 open(OUT, "wb").write(bytes(hdr) + bytes(body) + gd3)
+drum_summary = (
+    "PCM(%dch) " % PCM_VOICES + str(sorted(pcm_offsets, key=str)) if PCM_DRUMS else
+    "omitted" if NOPSG else
+    "noise"
+)
+fm_summary = {g: [midi_ch_label(c) for c in cs] for g, cs in groups.items()}
 print(f"{OUT}: dur={total_samples/SR:.1f}s bytes={total_len}")
-print(f"  bass=ch{bass_ch}{' [SUSTAIN]' if SUSTAIN_BASS else ''} | FM={ {g: [ (c) for c in cs ] for g,cs in groups.items()} } "
+print(f"  bass={midi_ch_label(bass_ch) if bass_ch is not None else '-'}{' [SUSTAIN]' if SUSTAIN_BASS else ''} | FM={fm_summary} "
       f"slots={ {g:FM_OF.get(g) for g in FM_OF} }")
-print(f"  PSG(square)=ch{psg_chs} {'(guitar)' if guitar else '(lead offload)'} | "
-      f"drums->{'PCM(%dch) ' % PCM_VOICES + str(sorted(pcm_offsets, key=str)) if PCM_DRUMS else 'noise'}")
+print(f"  PSG(square)={[midi_ch_label(c) for c in psg_chs]} {'(guitar)' if guitar else '(lead offload)'} | "
+      f"drums->{drum_summary}")
 if PCM_SHOT_SPEC:
     print(f"  PCM shot=ch{pcm_shot_selected} plays={sum(len(v) for v in shot_plays.values())} skipped={pcm_shot_skipped}")
     print(f"    by ch play={pcm_shot_play_count} skip={pcm_shot_skip_count} mixed={pcm_shot_mix_count}")
 if psg_echo_chs:
     print(f"  PSG echo={list(zip(echo_main_chs, psg_echo_chs))}")
+print("  part routes:")
+for c in sorted(notecnt):
+    print(part_summary_line(c))
 print(f"  CC/PB: CC1={cc_count.get(1, 0)} CC7={cc_count.get(7, 0)} CC11={cc_count.get(11, 0)} PB={pb_count}")
