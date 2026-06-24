@@ -14,9 +14,9 @@ Drive / Genesis style music.
 ## Tooling
 
 - Main converter: `python3 scripts/genvgm.py IN.mid OUT.vgm`.
-- Batch converter: `python3 scripts/genallbgm.py [song ...]`.
+- Multi-file wrapper: `python3 scripts/genallbgm.py -o OUT_DIR IN.mid [...]`.
 - PSG-only converter: `python3 scripts/genpsg.py IN.mid OUT.vgm`.
-- PSG batch converter: `python3 scripts/genallpsg.py [song ...]`.
+- PSG multi-file wrapper: `python3 scripts/genallpsg.py -o OUT_DIR IN.mid [...]`.
 - Shared PSG expression helpers live in `scripts/psg_voice.py`.
 
 ## Dependencies
@@ -34,5 +34,5 @@ Before publishing changes, at minimum run:
 python3 -m py_compile scripts/*.py
 ```
 
-If local MIDI files are available, also test one direct conversion and one batch
-conversion. Do not add those MIDI/VGM files to git.
+If local MIDI files are available, also test one direct conversion and one
+multi-file wrapper conversion. Do not add those MIDI/VGM files to git.

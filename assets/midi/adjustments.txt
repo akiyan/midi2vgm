@@ -1,3 +1,3 @@
-# BGM 変換の調整（scripts/genallbgm.py が読む）。'<key> token ...'（key はフル名でも先頭番号でも可）。
+# BGM 変換の調整例（scripts/genallbgm.py --adjustments で指定）。'<key> token ...'（key はフル名でも先頭番号でも可）。
 # トークン: fm6=FM6ch・ドラム PSG ノイズ（既定は 3ch PCM） / bell+PSG=bell(オルゴール)主旋律に PSG 矩形ユニゾン
 02 bell+PSG pcm-shot=auto+4

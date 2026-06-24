@@ -1,6 +1,6 @@
 # MIDI 曲アノテーション
 
-`assets/midi/*.mid` の内容を、シナリオ指定や BGM 選定で探しやすいようにまとめたメモ。
+元プロジェクトで使っていた MIDI セットの内容を、シナリオ指定や BGM 選定で探しやすいようにまとめたメモ。
 曲名は MIDI 内のトラック名、雰囲気はファイル名と主な GM 音色からの要約。
 長さは MIDI ファイル上の終端までの概算で、ループ用途では体感尺と一致しないことがある。
 
@@ -110,6 +110,6 @@
 ## 変換メモ
 
 - `scripts/genallbgm.py` の対象は上記 43 曲すべて。
-- 既定の変換は 3ch PCM ドラム付き。`assets/midi/adjustments.txt` に個別調整がある曲だけ追加指定する。
+- 既定の変換は 3ch PCM ドラム付き。`genallbgm.py --adjustments` に渡した調整ファイルで個別指定する。
 - 現在の個別調整は `02_introduction` の `bell+PSG pcm-shot=auto+4`。
 - `res/resources.res` に ROM へ組み込まれているのは現時点では一部の曲のみ。全曲を使う場合は `res/bgm/*.vgm` 生成とリソース定義の追加が必要。
