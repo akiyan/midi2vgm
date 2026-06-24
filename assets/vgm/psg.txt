@@ -1,0 +1,61 @@
+# GG 向け PSG 化マッピング（scripts/genallpsg.py が読む）。
+#
+# SN76489（矩形3ch + ノイズ1ch）に MIDI のどのパートを当てるかを曲ごとに手動指定する。
+# [曲ファイル名（拡張子なし）] のセクションごとに以下の行を書く:
+#
+#   tone0 = <MIDI ch> [decay=pluck|soft|sustain] [oct=±N] [vib] [atten=N]
+#   tone1 = ...                # 矩形2本目
+#   tone2 = ...                # 矩形3本目（多くはベース。PSG は低音が出ないので oct=+1 で持ち上げる）
+#   noise = drums              # ドラム(ch10)をノイズへ。書かなければノイズ無し
+#
+#   MIDI ch は 1 始まり（midi_roles の表示と同じ）。tone は単音化（最後に押した音を優先）。
+#   メロディが複数パートに分かれて受け渡される曲は ch を '+' で連結して 1 本に共有できる
+#   （例: tone0 = 1+5）。共有時は「最高音」優先で、片方が休んでも他方で繋いで無音を防ぐ。
+#   decay: pluck=速い減衰 / soft=ゆるい減衰(既定) / sustain=減衰なし(note-off まで保持)
+#   oct=+1 等で全体をオクターブ移調。範囲外(約 A2〜C7)は自動でオクターブ折り返し。
+#   vib でソフトビブラート（持続するリード向け）。atten=N で更に N 段音量を下げる。
+#
+# セクションの無い曲は自動選定（bass + 音符数上位2、tone0=高音…tone2=低音）。
+
+[01_kamaitachi_no_yoru]
+tone0 = 1 decay=soft vib          # シンセパッド主旋律
+tone1 = 4 decay=soft              # 副旋律パッド
+tone2 = 7 decay=pluck             # エレピのアルペジオ（粒立ち）
+noise = drums
+
+[02_introduction]
+tone0 = 1 decay=pluck             # オルゴール主旋律（PSG でも粒の立つピン）
+tone1 = 3 decay=soft              # ヴィブラフォン系の和音
+tone2 = 6 decay=sustain oct=+1    # ストリングスベース（低音を持ち上げ）
+noise = drums
+
+[03_gerende_no_koibitotachi]
+tone0 = 1+4+5 decay=soft vib       # 主旋律を受け渡しで連結: アコーディオン(ch1)→トランペット(ch4,35-45s)→高ストリングス(ch5,46s-)
+tone1 = 7 decay=soft              # ストリングスの刻み（最も動く伴奏）
+tone2 = 8 decay=sustain           # ベース（音域が広いので自動折り返し任せ）
+# この曲はドラムtrackが無いのでノイズ無し
+
+[04_hana_no_ol_sanningumi]
+tone0 = 1 decay=soft vib          # サックス主旋律
+tone1 = 2 decay=pluck             # エレピ
+tone2 = 3 decay=pluck oct=+1      # ベース
+noise = drums
+
+[05_washi_ga_kayama_ya_otoko_no_daioujou]
+# この曲だけメロディ以外（伴奏）も共有化して各 PSG 声部を遊ばせない方針。
+tone0 = 1+3+4+6 decay=soft        # 主旋律: ピッコロ(ch1)→サックス(ch3)。休む区間は高音弦(ch4 StringEns1)＋ギター(ch6)で繋ぐ
+tone1 = 5+6 decay=soft            # 伴奏: ストリングス(ch5 StringEns1)が休む区間はギター(ch6)で繋ぐ
+tone2 = 8 decay=pluck oct=+1      # ベース
+noise = drums
+
+[07_pension_shupuru]
+tone0 = 1 decay=soft              # ピッコロ主旋律
+tone1 = 4 decay=pluck             # ギターの刻み
+tone2 = 5 decay=pluck oct=+1      # ベース
+noise = drums
+
+[29_kohakuiro_no_mikazuki]
+tone0 = 1+2 decay=soft vib         # 主旋律: リード(ch1)は長い休みがあるのでエレピ(ch2)で繋ぐ
+tone1 = 4 decay=pluck             # エレピの刻み
+tone2 = 6 decay=sustain oct=+1    # ベース
+noise = drums

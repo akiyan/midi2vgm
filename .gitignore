@@ -1,0 +1,17 @@
+# Local inputs and generated output.
+#
+# The repository is intended to be public, so MIDI sources and generated VGMs are
+# not tracked by default. Put legally usable MIDI files under assets/midi/.
+assets/midi/*.mid
+assets/midi/*.midi
+assets/vgm/*.vgm
+res/bgm/*.vgm
+out/
+tmp/
+
+# Python/editor noise.
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+._*
