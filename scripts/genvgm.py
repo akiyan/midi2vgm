@@ -6,7 +6,11 @@ SGDK の rescomp が `XGM name file.vgm` で VGM→XGM へ変換し、XGM ドラ
 GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)へ振り分ける。
 
   エンジン割り当て（パートごとに音色を固定＝一貫した音色）:
-    ドラム(ch10)                 → 既定は PCM。--psg-drums 時は PSG ノイズ（音程→周期、減衰付き）
+    ドラム(ch10)                 → 既定は PCM。ch10 のプログラムチェンジを GS/GM 流に解釈し、
+                                   SoundFont の bank128 ドラムキット（Standard/Room/Power/808/
+                                   Jazz/Brush/Orchestra 等）へ自動スナップ。曲中のキット切替も追従。
+                                   ベロシティは数段階に量子化して各段を別 PCM サンプルとして収録。
+                                   --psg-drums 時は PSG ノイズ（音程→周期、減衰付き）
     ベース(最低音域)             → FM（基音+2倍音のベース）
     撥弦(GM24-31) or リード筆頭   → PSG 矩形（明るい/プラック）。撥弦が無ければ最高音域の
                                    リード系を PSG に回し、PSG を活用しつつ FM の負荷も下げる
@@ -14,7 +18,7 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                                    （ブラス/リード/弦/パイプ＝それぞれ別倍音構成）
   和音は各プール内でボイス割当（空き無ければ最古を奪う）。ループ点は曲頭。
 
-  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--sf2=PATH] [--atten=N]
+  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]
     --no-psg : PSG を一切使わず旋律パートを FM へ割り当てる（--psg-drums 併用時はドラム省略）。
     ch10 ドラムは既定で FluidSynth+SoundFont 由来の VGM stream PCM として出力する
     --psg-drums: ch10 ドラムを PSG ノイズで出力する。
@@ -25,6 +29,8 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                1 ステップ約0.75dB。例: 6≒-4.5dB, 8≒-6dB）。
     --pcm-shot=auto|ch,ch...|auto+ch...: 短い装飾音パートを自動/手動選択し、空きPCM chへ薄く重ねる。
                                          chはMIDIの1始まり。
+    --drum-vel-levels=N: ドラムのベロシティ量子化段階数(1..8, 既定4。1=ベロシティ無効)。
+                         多いほど強弱の表情が豊かになるが、各段が別 PCM サンプルになり容量が増える。
 """
 import math, os, shutil, struct, subprocess, sys, tempfile, wave
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +44,8 @@ USE_FM6 = "--fm6" in sys.argv
 BELL_PSG = "--bell-psg" in sys.argv   # bell(オルゴール)主旋律に PSG 矩形を同音ユニゾンで重ねる
 ATTEN = 0
 PCM_SHOT_SPEC = ""
+DRUM_VEL_LEVELS = 4    # ch10 ドラムのベロシティ量子化段階数(1=ベロシティ無効)。各段は別 PCM サンプルとして
+DRUM_VEL_MIN = 40      # 収録するので容量と相談。最弱段の代表ベロシティ(最強段は常に 127)。
 SF2_CANDIDATES = [
     os.environ.get("SOUNDFONT"),
     "/usr/share/sounds/sf2/default-GM.sf2",
@@ -51,14 +59,61 @@ for a in sys.argv:
         SF2 = a.split("=", 1)[1]
     elif a.startswith("--pcm-shot="):
         PCM_SHOT_SPEC = a.split("=", 1)[1].strip().lower() or "auto"
+    elif a.startswith("--drum-vel-levels="):
+        DRUM_VEL_LEVELS = max(1, min(8, int(a.split("=", 1)[1])))
 if len(argv) < 2:
-    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--sf2=PATH] [--atten=N]")
+    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]")
 if "--pcm-drums" in sys.argv and PSG_DRUMS:
     sys.exit("--pcm-drums and --psg-drums cannot be combined")
 if PCM_DRUMS and USE_FM6:
     sys.exit("--fm6 cannot be combined with PCM drums; use --psg-drums because FM6 shares YM2612 ch6 with DAC/PCM")
 MID, OUT = argv[0], argv[1]
 SONG = os.path.splitext(os.path.basename(MID))[0]
+
+def sf2_drum_kits(path):
+    """SoundFont の bank128(パーカッション)プリセット {preset番号: 名前} を返す。読めなければ {}。
+    MIDI の ch10 プログラムチェンジ番号 = ドラムキット番号 で、この一覧へスナップして使う。"""
+    try:
+        d = open(path, "rb").read()
+    except OSError:
+        return {}
+    j = d.find(b"phdr", max(0, d.find(b"pdta")))
+    if j < 0:
+        return {}
+    size = struct.unpack("<I", d[j + 4:j + 8])[0]
+    body = d[j + 8:j + 8 + size]
+    kits = {}
+    for k in range(0, len(body) - 37, 38):           # phdr は 38 バイト固定長レコード
+        rec = body[k:k + 38]
+        preset, bank = struct.unpack("<HH", rec[20:24])
+        if bank == 128:
+            kits[preset] = rec[:20].split(b"\x00")[0].decode("latin1", "replace")
+    return kits
+
+DRUM_KITS = sf2_drum_kits(SF2) if not PSG_DRUMS and os.path.exists(SF2) else {}
+DRUM_KIT_PRESETS = sorted(DRUM_KITS)
+
+def snap_drum_kit(prog_num):
+    """要求キット番号を SoundFont に実在する最寄りプリセットへ(同番→以下で最大→最小)。
+    GS のキット番号は『派生は基準キットへフォールバック』前提で疎に振られているため、
+    『以下で最大』スナップが GS の意図(例: Room2..7→Room8)とほぼ一致する。無ければ None。"""
+    if not DRUM_KIT_PRESETS:
+        return None
+    if prog_num in DRUM_KITS:
+        return prog_num
+    lower = [p for p in DRUM_KIT_PRESETS if p <= prog_num]
+    return lower[-1] if lower else DRUM_KIT_PRESETS[0]
+
+def _drum_vel_reps(n):
+    if n <= 1:
+        return [127]
+    return [int(round(DRUM_VEL_MIN + (127 - DRUM_VEL_MIN) * i / (n - 1))) for i in range(n)]
+
+DRUM_VEL_REPS = _drum_vel_reps(DRUM_VEL_LEVELS)     # 代表ベロシティ(昇順)。index が量子化段。
+
+def drum_vel_level(v):
+    return min(range(len(DRUM_VEL_REPS)), key=lambda i: abs(DRUM_VEL_REPS[i] - v))
+
 YM_CLOCK = 7670453
 PSG_CLOCK = 3579545
 SR = 44100
@@ -156,6 +211,7 @@ for t in read_tracks(data):
 events.sort(key=lambda e: e[0])
 
 timed = []                                    # (sec, kind, note/cc, chan, velocity/value)
+drum_prog_changes = []                         # ch10 のキット切替: [(sec, kit番号), ...] 時刻順
 prog = {}; notecnt = {}; pitchsum = {}
 velsum = {}
 cc_count = {1: 0, 7: 0, 11: 0}
@@ -172,7 +228,10 @@ for tick, kind, a, c in events:
     sec += (tick - last_tick) * (cur_tempo / 1e6) / div
     last_tick = tick
     if kind == "tempo":   cur_tempo = a
-    elif kind == "prog":  prog.setdefault(c, a)
+    elif kind == "prog":
+        prog.setdefault(c, a)
+        if c == DRUM_CH:
+            drum_prog_changes.append((sec, a))
     else:
         note, vel = a
         timed.append((sec, kind, note, c, vel))
@@ -194,6 +253,16 @@ for tick, kind, a, c in events:
         elif kind == "pb":
             pb_count += 1
             chan_pb_count[c] = chan_pb_count.get(c, 0) + 1
+
+def drum_kit_at(sec):
+    """その時刻に有効な ch10 ドラムキットを SoundFont の実在プリセットへスナップして返す。"""
+    kit = 0
+    for csec, prog_num in drum_prog_changes:
+        if csec <= sec + 1e-6:
+            kit = prog_num
+        else:
+            break
+    return snap_drum_kit(kit)
 
 mel = [c for c in notecnt if c != DRUM_CH]
 avgp = {c: pitchsum[c] / notecnt[c] for c in mel}
@@ -702,10 +771,12 @@ def midi_var(n):
 def drum_key(notes):
     return tuple(sorted(set(notes)))
 
-def write_drum_midi(path, notes, velocity=112):
+def write_drum_midi(path, notes, preset=None, velocity=112):
     notes = drum_key(notes)
     trk = bytearray()
     trk += midi_var(0) + bytes([0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20])  # 120 BPM
+    if preset is not None:
+        trk += midi_var(0) + bytes([0xC9, preset & 0x7F])             # ch10 program = ドラムキット選択
     for i, note in enumerate(notes):
         trk += midi_var(0) + bytes([0x99, note & 0x7F, velocity & 0x7F])   # ch10 note on
     for i, note in enumerate(notes):
@@ -826,7 +897,7 @@ def resample_linear(samples, in_rate, out_rate):
             result.append(samples[-1])
     return result
 
-def render_drum_float(notes):
+def render_drum_float(notes, preset=None, velocity=112):
     notes = drum_key(notes)
     fs = shutil.which("fluidsynth")
     if fs is None:
@@ -835,10 +906,10 @@ def render_drum_float(notes):
         raise SystemExit(f"PCM drums SoundFont not found: {SF2}")
 
     with tempfile.TemporaryDirectory() as td:
-        suffix = "_".join(str(n) for n in notes)
+        suffix = f"k{preset}_v{velocity}_" + "_".join(str(n) for n in notes)
         mid = os.path.join(td, f"drum_{suffix}.mid")
         wav_path = os.path.join(td, f"drum_{suffix}.wav")
-        write_drum_midi(mid, notes)
+        write_drum_midi(mid, notes, preset, velocity)
         cmd = [fs, "-ni", "-g", "0.8", "-F", wav_path, "-r", "44100", SF2, mid]
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if r.returncode != 0:
@@ -868,9 +939,9 @@ def render_shot_float(program, note):
     samples = trim_shot_audio(samples, rate)
     return resample_linear(samples, rate, PCM_RATE)
 
-def mix_drum_float(notes):
-    notes = drum_key(notes)
-    parts = [render_drum_float((n,)) for n in notes]
+def mix_drum_float(items, preset=None):
+    # items: [(note, velocity), ...] 同時発音をミックスダウン
+    parts = [render_drum_float((n,), preset, v) for n, v in items]
     if not parts:
         return [0.0]
     out_len = max(len(p) for p in parts)
@@ -908,8 +979,12 @@ def _render_float(key):
         return render_shot_float(program, note)
     if isinstance(key, tuple) and key and key[0] == "shotmix":
         return mix_float_parts([_render_float(k) for k in key[1]])
-    key = drum_key(key)
-    return render_drum_float(key) if len(key) == 1 else mix_drum_float(key)
+    # ("d", preset, ((note, velocity), ...)) : preset=ドラムキット, velocity=量子化済み代表値
+    _tag, preset, items = key
+    if len(items) == 1:
+        n, v = items[0]
+        return render_drum_float((n,), preset, v)
+    return mix_drum_float(items, preset)
 
 def setup_pcm_drums():
     """ドラムを 3 PCM チャンネルへ振り分ける。各 onset を最大 3 ユニットへ分け（4 音以上は
@@ -918,19 +993,29 @@ def setup_pcm_drums():
     正規化（kick/hat の相対バランスを保つ）。VGM は stream id 0..2 を全て YM2612 DAC へ向け、
     xgmtool が stream id を優先度に使って 3 PCM チャンネルへ載せる。"""
     global pcm_shot_skipped, pcm_shot_mix_count
-    onsets = sorted(drum_groups.items())                 # [(samp, [notes]), ...]
+    onsets = sorted(drum_groups.items())                 # [(samp, [(note, vel), ...]), ...]
     onset_units = {}
     keys = set()
-    for samp, notes in onsets:
-        u = drum_key(notes)
+    for samp, pairs in onsets:
+        preset = drum_kit_at(samp / SR)                  # その時刻のドラムキット
+        notevel = {}                                     # note -> 量子化ベロシティ段(同時同音は強い方)
+        for n, v in pairs:
+            lvl = drum_vel_level(v)
+            if lvl > notevel.get(n, -1):
+                notevel[n] = lvl
+        u = sorted(notevel)
         if len(u) <= PCM_VOICES:
-            units = [(n,) for n in u]
+            units = [[n] for n in u]
         else:                                            # 4 音以上: 3 バケツへミックスダウン
             buckets = [[] for _ in range(PCM_VOICES)]
             for i, n in enumerate(u):
                 buckets[i % PCM_VOICES].append(n)
-            units = [tuple(b) for b in buckets if b]
-        onset_units[samp] = [drum_key(x) for x in units]
+            units = [b for b in buckets if b]
+        # ("d", preset, ((note, 代表ベロシティ), ...)) を cache key に。同 (kit,note,段) は 1 サンプル共有。
+        onset_units[samp] = [
+            ("d", preset, tuple((n, DRUM_VEL_REPS[notevel[n]]) for n in sorted(unit)))
+            for unit in units
+        ]
         keys.update(onset_units[samp])
     shot_onsets = {}
     if PCM_DRUMS and pcm_shot_chs:
@@ -952,12 +1037,25 @@ def setup_pcm_drums():
     if not keys:
         return
     floats = {k: _render_float(k) for k in sorted(keys, key=str)}
+    # ドラムは (kit, ノード集合) を 1 ファミリとし、ファミリ内の最大ピークで一括正規化する。
+    # → ベロシティ段ごとの音量差(=表情)を保ちつつ、最強ヒットが 8bit PCM 解像度を使い切る。
+    def drum_family(k):
+        return (k[1], tuple(sorted(n for n, _v in k[2])))
+    fam_peak = {}
+    for k in keys:
+        if isinstance(k, tuple) and k and k[0] == "d":
+            peak = max((abs(v) for v in floats[k]), default=0.0001)
+            fam = drum_family(k)
+            fam_peak[fam] = max(fam_peak.get(fam, 0.0), peak)
     blob = bytearray()
     for k in sorted(keys, key=str):
         pcm_offsets[k] = len(blob)
-        kscale = min(1.8, 0.88 / max((abs(v) for v in floats[k]), default=0.0001)) * (
-            PCM_SHOT_GAIN if isinstance(k, tuple) and k and k[0] in ("shot", "shotmix") else PCM_DRUM_GAIN
-        )
+        if isinstance(k, tuple) and k and k[0] == "d":
+            kscale = min(1.8, 0.88 / max(fam_peak[drum_family(k)], 0.0001)) * PCM_DRUM_GAIN
+        else:
+            kscale = min(1.8, 0.88 / max((abs(v) for v in floats[k]), default=0.0001)) * (
+                PCM_SHOT_GAIN if isinstance(k, tuple) and k and k[0] in ("shot", "shotmix") else PCM_DRUM_GAIN
+            )
         b = bytes(clamp8(128 + v * kscale * 127.0) for v in floats[k])
         pcm_sizes[k] = len(b)
         blob.extend(b)
@@ -1060,9 +1158,9 @@ def patch_fm(ch, name):
 # 初期化
 if PCM_DRUMS:
     drum_groups = {}
-    for sec, kind, note, chan, _ in timed:
+    for sec, kind, note, chan, vel in timed:
         if chan == DRUM_CH and kind == "on":
-            drum_groups.setdefault(int(round(sec * SR)), []).append(note)
+            drum_groups.setdefault(int(round(sec * SR)), []).append((note, vel))
     setup_pcm_drums()
 ymP(0, 0x22, 0x08 | LFO_FREQ); ymP(0, 0x27, 0x00); ymP(0, 0x2B, 0x80 if PCM_DRUMS else 0x00)   # LFO 有効（FMS ビブラート用）
 for name, chs in FM_OF.items():
@@ -1443,6 +1541,11 @@ print(f"  bass={midi_ch_label(bass_ch) if bass_ch is not None else '-'}{' [SUSTA
       f"slots={ {g:FM_OF.get(g) for g in FM_OF} }")
 print(f"  PSG(square)={[midi_ch_label(c) for c in psg_chs]} {'(guitar)' if guitar else '(lead offload)'} | "
       f"drums->{drum_summary}")
+if PCM_DRUMS:
+    used_kits = sorted({k[1] for k in pcm_offsets
+                        if isinstance(k, tuple) and k and k[0] == "d" and k[1] is not None})
+    kit_text = ", ".join(f"{p}:{DRUM_KITS.get(p, '?')}" for p in used_kits) or "fluidsynth default"
+    print(f"  drum kits=[{kit_text}] vel_levels={DRUM_VEL_LEVELS} reps={DRUM_VEL_REPS}")
 if PCM_SHOT_SPEC:
     print(f"  PCM shot=ch{pcm_shot_selected} plays={sum(len(v) for v in shot_plays.values())} skipped={pcm_shot_skipped}")
     print(f"    by ch play={pcm_shot_play_count} skip={pcm_shot_skip_count} mixed={pcm_shot_mix_count}")
