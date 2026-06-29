@@ -119,7 +119,6 @@ PSG_CLOCK = 3579545
 SR = 44100
 DRUM_CH = 9
 PCM_RATE = 13300
-PCM_DRUM_GAIN = 0.65
 PCM_SHOT_GAIN = 0.42
 PCM_SHOT_MAX_SEC = 0.42
 HAT_NOTES = {42, 44, 46}
@@ -1051,11 +1050,10 @@ def setup_pcm_drums():
     for k in sorted(keys, key=str):
         pcm_offsets[k] = len(blob)
         if isinstance(k, tuple) and k and k[0] == "d":
-            kscale = min(1.8, 0.88 / max(fam_peak[drum_family(k)], 0.0001)) * PCM_DRUM_GAIN
-        else:
-            kscale = min(1.8, 0.88 / max((abs(v) for v in floats[k]), default=0.0001)) * (
-                PCM_SHOT_GAIN if isinstance(k, tuple) and k and k[0] in ("shot", "shotmix") else PCM_DRUM_GAIN
-            )
+            # ファミリ内ピークで正規化のみ（ベロシティ対応に伴い、ドラム全体を下げる調整は廃止）。
+            kscale = min(1.8, 0.88 / max(fam_peak[drum_family(k)], 0.0001))
+        else:                                            # shot / shotmix は薄く重ねる層
+            kscale = min(1.8, 0.88 / max((abs(v) for v in floats[k]), default=0.0001)) * PCM_SHOT_GAIN
         b = bytes(clamp8(128 + v * kscale * 127.0) for v in floats[k])
         pcm_sizes[k] = len(b)
         blob.extend(b)
