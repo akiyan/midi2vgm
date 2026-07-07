@@ -18,13 +18,14 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                                    （ブラス/リード/弦/パイプ＝それぞれ別倍音構成）
   和音は各プール内でボイス割当（空き無ければ最古を奪う）。ループ点は曲頭。
 
-  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]
+  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--soundfont=NAME] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]
     --no-psg : PSG を一切使わず旋律パートを FM へ割り当てる（--psg-drums 併用時はドラム省略）。
     ch10 ドラムは既定で FluidSynth+SoundFont 由来の VGM stream PCM として出力する
     --psg-drums: ch10 ドラムを PSG ノイズで出力する。
     FM は SFX/PCM 余地として常に 1ch 空けるため最大5ch。
     --fm6: 比較/選択用に FM6 まで BGM に使う。PCM ドラムとは併用できないため --psg-drums が必要。
-    --sf2=PATH : PCM ドラム / PCM shot で使う SoundFont（既定: $SOUNDFONT または検出した GM SoundFont）。
+    --soundfont=NAME : SoundFont を別名で選ぶ（generaluser/gu, fluidr3/fluid, default）。
+    --sf2=PATH : PCM ドラム / PCM shot で使う SoundFont を任意パスで指定（既定: $SOUNDFONT または検出した GM SoundFont）。
     --atten=N: FM 可聴オペレータの TL に N を加算して音量を下げる（TL は大きいほど小音量、
                1 ステップ約0.75dB。例: 6≒-4.5dB, 8≒-6dB）。
     --pcm-shot=auto|ch,ch...|auto+ch...: 短い装飾音パートを自動/手動選択し、空きPCM chへ薄く重ねる。
@@ -46,10 +47,24 @@ ATTEN = 0
 PCM_SHOT_SPEC = ""
 DRUM_VEL_LEVELS = 4    # ch10 ドラムのベロシティ量子化段階数(1=ベロシティ無効)。各段は別 PCM サンプルとして
 DRUM_VEL_MIN = 40      # 収録するので容量と相談。最弱段の代表ベロシティ(最強段は常に 127)。
+# 短い別名で SoundFont を選べるようにする(--soundfont=NAME)。値は探索パス候補で、先に
+# 実在したものを使う。任意パスは従来どおり --sf2=PATH で指定できる。
+SF2_NAMED = {
+    "generaluser": [
+        os.path.expanduser("~/.local/share/sounds/sf2/GeneralUser-GS.sf2"),
+        "/usr/share/sounds/sf2/GeneralUser-GS.sf2",
+        "/usr/share/sounds/sf2/GeneralUser_GS.sf2",
+    ],
+    "fluidr3": ["/usr/share/sounds/sf2/FluidR3_GM.sf2"],
+    "default": ["/usr/share/sounds/sf2/default-GM.sf2"],
+}
+SF2_NAMED["gu"] = SF2_NAMED["generaluser"]    # 短縮別名
+SF2_NAMED["fluid"] = SF2_NAMED["fluidr3"]
 SF2_CANDIDATES = [
     os.environ.get("SOUNDFONT"),
     "/usr/share/sounds/sf2/default-GM.sf2",
     "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+    *SF2_NAMED["generaluser"],                # 既定が無ければ GeneralUser GS も自動検出
 ]
 SF2 = next((p for p in SF2_CANDIDATES if p and os.path.exists(p)), SF2_CANDIDATES[0] or SF2_CANDIDATES[1])
 for a in sys.argv:
@@ -57,12 +72,22 @@ for a in sys.argv:
         ATTEN = int(a.split("=", 1)[1])
     elif a.startswith("--sf2="):
         SF2 = a.split("=", 1)[1]
+    elif a.startswith("--soundfont="):
+        name = a.split("=", 1)[1].strip().lower()
+        cands = SF2_NAMED.get(name)
+        if cands is None:
+            sys.exit("unknown --soundfont=%s (choices: %s; or use --sf2=PATH)"
+                     % (name, ", ".join(sorted(SF2_NAMED))))
+        chosen = next((p for p in cands if os.path.exists(p)), None)
+        if chosen is None:
+            sys.exit("--soundfont=%s not found; looked for: %s" % (name, ", ".join(cands)))
+        SF2 = chosen
     elif a.startswith("--pcm-shot="):
         PCM_SHOT_SPEC = a.split("=", 1)[1].strip().lower() or "auto"
     elif a.startswith("--drum-vel-levels="):
         DRUM_VEL_LEVELS = max(1, min(8, int(a.split("=", 1)[1])))
 if len(argv) < 2:
-    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]")
+    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--soundfont=generaluser|fluidr3|default] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]")
 if "--pcm-drums" in sys.argv and PSG_DRUMS:
     sys.exit("--pcm-drums and --psg-drums cannot be combined")
 if PCM_DRUMS and USE_FM6:
@@ -1543,7 +1568,7 @@ if PCM_DRUMS:
     used_kits = sorted({k[1] for k in pcm_offsets
                         if isinstance(k, tuple) and k and k[0] == "d" and k[1] is not None})
     kit_text = ", ".join(f"{p}:{DRUM_KITS.get(p, '?')}" for p in used_kits) or "fluidsynth default"
-    print(f"  drum kits=[{kit_text}] vel_levels={DRUM_VEL_LEVELS} reps={DRUM_VEL_REPS}")
+    print(f"  drum kits=[{kit_text}] vel_levels={DRUM_VEL_LEVELS} reps={DRUM_VEL_REPS} sf2={os.path.basename(SF2)}")
 if PCM_SHOT_SPEC:
     print(f"  PCM shot=ch{pcm_shot_selected} plays={sum(len(v) for v in shot_plays.values())} skipped={pcm_shot_skipped}")
     print(f"    by ch play={pcm_shot_play_count} skip={pcm_shot_skip_count} mixed={pcm_shot_mix_count}")

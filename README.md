@@ -37,8 +37,13 @@ sudo apt-get install -y python3
 ```
 
 既定の SoundFont は `SOUNDFONT`、`/usr/share/sounds/sf2/default-GM.sf2`、
-`/usr/share/sounds/sf2/FluidR3_GM.sf2` の順に探します。別の SoundFont を使う場合は
-`--sf2=/path/to/file.sf2` または `SOUNDFONT=/path/to/file.sf2` を指定します。
+`/usr/share/sounds/sf2/FluidR3_GM.sf2`、`~/.local/share/sounds/sf2/GeneralUser-GS.sf2`
+の順に探します。別名で選ぶ場合は `--soundfont=generaluser`（`gu`）/ `fluidr3`（`fluid`）/
+`default`、任意パスは `--sf2=/path/to/file.sf2` または `SOUNDFONT=/path/to/file.sf2` で指定します。
+
+[GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) は GM + Roland GS 互換の
+無償 SoundFont（約30MB、13ドラムキット）で、FluidR3_GM（約148MB）より軽量です。
+ライセンス上ローカル利用・再配布は自由ですが、このリポジトリには含めません（各自で入手）。
 
 SGDK プロジェクトへ組み込む場合は、別途 SGDK の `rescomp` と `xgmtool` / `xgm2tool` が必要です。
 このリポジトリ自体は VGM の生成までを担当します。
@@ -120,8 +125,11 @@ python3 scripts/genvgm.py /path/to/02_introduction.mid out/02_introduction.vgm \
 - `--atten=N`
   FM オペレータの TL に `N` を加えて音量を下げます。TL は大きいほど小音量です。
   `6` が扱いやすい初期値です。
+- `--soundfont=NAME`
+  SoundFont を別名で選びます。`generaluser`（`gu`）、`fluidr3`（`fluid`）、`default` に対応。
+  該当ファイルが見つからない場合はエラーで知らせます。
 - `--sf2=PATH`
-  FluidSynth で使う SoundFont を指定します。
+  FluidSynth で使う SoundFont を任意パスで指定します（`--soundfont` より細かく指定したいとき）。
 
 ## MIDI から FM パッチへの変換
 
