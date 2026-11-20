@@ -426,16 +426,6 @@ PATCH = {
             {"mul": 1, "tl": 0x06, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x04, "slrr": 0x96},
             {"mul": 2, "tl": 0x18, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x04, "slrr": 0x96},
         ]},
-    # 音板の鍵盤打楽器（ヴィブラフォン/マリンバ/シロフォン, GM prog 11-13）。音板は基音の2オクターブ上
-    # （4倍）の部分音を持つので、基音と4倍のキャリアを並べ、4倍は基音より早く減衰させる。
-    # モジュレータはアタックの硬さだけを作ってすぐ消える。op 順は [op1(mod),op3(mod),op2(car),op4(car)]。
-    "mallet": {
-        "alg": 4, "fb": 3, "op": [
-            {"mul": 1, "tl": 0x2C, "ar": 0x1F, "d1r": 0x14, "d2r": 0x08, "slrr": 0xF8},
-            {"mul": 7, "tl": 0x40, "ar": 0x1F, "d1r": 0x16, "d2r": 0x0A, "slrr": 0xF8, "dt": 1},
-            {"mul": 1, "tl": 0x06, "ar": 0x1F, "d1r": 0x09, "d2r": 0x04, "slrr": 0x36, "rs": 1},
-            {"mul": 4, "tl": 0x0B, "ar": 0x1F, "d1r": 0x0B, "d2r": 0x05, "slrr": 0x46, "dt": 5, "rs": 1},
-        ]},
     # ピアノ/エレピ（GM prog 0-7）。DX 風エレピ: 同倍音モジュレータで温かみ＋14x モジュレータで
     # アタックの tine ピン、中程度の減衰。打鍵で減衰しつつ少し伸びる。op 順 [op1,op3,op2,op4]。
     # rs=1 で高音ほど速い減衰。
@@ -446,15 +436,13 @@ PATCH = {
             {"mul": 1,  "tl": 0x05, "ar": 0x1F, "d1r": 0x09, "d2r": 0x03, "slrr": 0x66, "rs": 1},
             {"mul": 1,  "tl": 0x20, "ar": 0x1F, "d1r": 0x0C, "d2r": 0x04, "slrr": 0x96, "rs": 1},
         ]},
-    # オルガン（GM prog 16-23）。減衰をほぼ持たない並列キャリア。8'/4'/2'/1' の音栓のように
-    # 1/2/4/8 倍を重ね、1 倍に強い FB を掛けて 3/5/6 倍などの間の倍音も出す。正弦波だけの
-    # 重ね方では倍音が少なく、パイプオルガンやハーモニカが丸く引っ込んでいた。
+    # オルガン（GM prog 16-23）。減衰をほぼ持たない並列キャリアで、倍音を重ねて薄いドローバー感を出す。
     "organ": {
-        "alg": 7, "fb": 6, "op": [
-            {"mul": 1, "tl": 0x0A, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
-            {"mul": 2, "tl": 0x1E, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 1},
-            {"mul": 4, "tl": 0x1E, "ar": 0x16, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 5},
-            {"mul": 8, "tl": 0x24, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
+        "alg": 7, "fb": 2, "op": [
+            {"mul": 1, "tl": 0x08, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
+            {"mul": 2, "tl": 0x22, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 1},
+            {"mul": 3, "tl": 0x34, "ar": 0x16, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F, "dt": 5},
+            {"mul": 1, "tl": 0x14, "ar": 0x18, "d1r": 0x01, "d2r": 0x00, "slrr": 0x0F},
         ]},
     # ベース系 GM prog 32-39 が最低音パートではない場合の受け皿。bass より少し丸く、短い減衰。
     "bassgtr": {
@@ -518,8 +506,7 @@ def fm_patch_for(p):
     if 40 <= p <= 55: return "strings"
     if 32 <= p <= 39: return "bassgtr"
     if 16 <= p <= 23: return "organ"
-    if 11 <= p <= 13: return "mallet"   # 音板の鍵盤打楽器（ヴィブラフォン/マリンバ/シロフォン）
-    if 8 <= p <= 15:  return "bell"     # chromatic percussion（チェレスタ/グロッケン/オルゴール等）
+    if 8 <= p <= 15:  return "bell"     # chromatic percussion（オルゴール/グロッケン/ヴィブラフォン）
     if p <= 7:        return "piano"    # ピアノ/エレピ（GM prog 0-7）
     if 29 <= p <= 30: return "distguitar"   # Overdriven / Distortion Guitar
     if 24 <= p <= 31: return "guitar"       # ギター/撥弦（GM prog 24-31）
@@ -558,12 +545,7 @@ def gm_name(p):
     return GM_NAMES[p] if 0 <= p < len(GM_NAMES) else "Unknown"
 
 # ============ エンジン/プール割り当て ============
-# 最低音域のパートでも、平均が C4 以上ならベースとして扱わない（高い持続音や旋律に bass 音色・
-# 低音の持ち上げを掛けない）。GM のベース音色（32-39）は音域にかかわらずベース候補にする。
-BASS_MAX_AVG_NOTE = 60
-lowest_ch = min(mel, key=lambda c: avgp[c]) if mel else None
-bass_ch = lowest_ch if lowest_ch is not None and (
-    avgp[lowest_ch] < BASS_MAX_AVG_NOTE or 32 <= prog.get(lowest_ch, 0) <= 39) else None
+bass_ch = min(mel, key=lambda c: avgp[c]) if mel else None
 non_bass = sorted([c for c in mel if c != bass_ch], key=lambda c: -avgp[c])  # 高音→低音
 
 # 持続低音（パッド/ロングトーンのベース）判定: bass パッチはプラック向けの二段減衰(D2R>0)なので、
@@ -1191,9 +1173,6 @@ def pcm_shot_play(samp):
     return go
 
 OPSLOT = (0x00, 0x04, 0x08, 0x0C)
-# アルゴリズムごとのキャリア（OPSLOT の添字: 0=S1, 1=S3, 2=S2, 3=S4）。音量の調整はキャリアの
-# TL だけに掛け、モジュレータの TL（＝倍音の量）は音色として保つ。
-CARRIERS = {0: (3,), 1: (3,), 2: (3,), 3: (3,), 4: (2, 3), 5: (1, 2, 3), 6: (1, 2, 3), 7: (0, 1, 2, 3)}
 def ch_port(ch): return 0 if ch < 3 else 1
 def ch_off(ch):  return ch if ch < 3 else ch - 3
 def ch_sel(ch):  return ch if ch < 3 else ch + 1
@@ -1205,8 +1184,7 @@ def patch_fm(ch, name):
     for si, off in enumerate(OPSLOT):
         op = patch["op"][si]
         mul = op["mul"]
-        carrier = si in CARRIERS[patch["alg"] & 7]
-        tl = min(127, op["tl"] + (ATTEN if carrier and op["tl"] < 0x70 else 0))
+        tl = min(127, op["tl"] + (ATTEN if op["tl"] < 0x70 else 0))
         d2r = op["d2r"] & 0x1F
         slrr = op["slrr"] & 0xFF
         if sustain and si in (2, 3):           # 持続低音: alg4 キャリア(S2/S4)を鳴らし切りに
@@ -1294,22 +1272,16 @@ def fm_lead_boost(chan):
     return 0
 
 def fm_velocity(ch, name, vel, ctrl_delta, lead_boost):
-    """ベロシティは音量と明るさ（モジュレータにも掛ける）。CC7/CC11・--atten・持ち上げは音量なので
-    キャリアだけに掛ける。モジュレータまで下げると、音量の小さいパートほど倍音が痩せて丸くなる。"""
     p, o = ch_port(ch), ch_off(ch)
     patch = PATCH[name]
-    carriers = CARRIERS[patch["alg"] & 7]
-    velocity = velocity_tl_delta(vel)
+    delta = velocity_tl_delta(vel) + ctrl_delta
     for si, off in enumerate(OPSLOT):
         tl = patch["op"][si]["tl"]
         if tl < 0x70:
-            if si not in carriers:
-                ymP(p, 0x40 + off + o, max(0, min(127, tl + velocity)))
-                continue
             boost = lead_boost
-            if name == "bass":                    # bass のキャリアだけ持ち上げ＝純粋に音量UP
+            if name == "bass" and si in (2, 3):   # bass の alg4 キャリア(S2,S4)だけ持ち上げ＝純粋に音量UP
                 boost += BASS_BOOST
-            ymP(p, 0x40 + off + o, max(0, min(127, tl + ATTEN + velocity + ctrl_delta - boost)))
+            ymP(p, 0x40 + off + o, max(0, min(127, tl + ATTEN + delta - boost)))
 
 def fm_on(ch, name, midi, vel, chan, sec):
     ctrl_delta = ctrl_tl_delta(chan)
