@@ -18,7 +18,7 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                                    （ブラス/リード/弦/パイプ＝それぞれ別倍音構成）
   和音は各プール内でボイス割当（空き無ければ最古を奪う）。ループ点は曲頭。
 
-  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--soundfont=NAME] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]
+  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--soundfont=NAME] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N]
     --no-psg : PSG を一切使わず旋律パートを FM へ割り当てる（--psg-drums 併用時はドラム省略）。
     ch10 ドラムは既定で FluidSynth+SoundFont 由来の VGM stream PCM として出力する
     --psg-drums: ch10 ドラムを PSG ノイズで出力する。
@@ -26,6 +26,8 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
     --fm6: 比較/選択用に FM6 まで BGM に使う。PCM ドラムとは併用できないため --psg-drums が必要。
     --soundfont=NAME : SoundFont を別名で選ぶ（generaluser/gu, fluidr3/fluid, default）。
     --sf2=PATH : PCM ドラム / PCM shot で使う SoundFont を任意パスで指定（既定: $SOUNDFONT または検出した GM SoundFont）。
+    --drum-samples=DIR : PCM ドラムを FluidSynth ではなく DIR/<GMノート番号>.wav から作る。
+                         曲が使う全ドラムノートの WAV が必要。ベロシティは (v/127)^2 で音量に反映する。
     --atten=N: FM 可聴オペレータの TL に N を加算して音量を下げる（TL は大きいほど小音量、
                1 ステップ約0.75dB。例: 6≒-4.5dB, 8≒-6dB）。
     --pcm-shot=auto|ch,ch...|auto+ch...: 短い装飾音パートを自動/手動選択し、空きPCM chへ薄く重ねる。
@@ -47,6 +49,7 @@ ATTEN = 0
 PCM_SHOT_SPEC = ""
 DRUM_VEL_LEVELS = 4    # ch10 ドラムのベロシティ量子化段階数(1=ベロシティ無効)。各段は別 PCM サンプルとして
 DRUM_VEL_MIN = 40      # 収録するので容量と相談。最弱段の代表ベロシティ(最強段は常に 127)。
+DRUM_SAMPLES = None    # --drum-samples=DIR: ノート番号別 WAV を PCM ドラム音源に使う
 # 短い別名で SoundFont を選べるようにする(--soundfont=NAME)。値は探索パス候補で、先に
 # 実在したものを使う。任意パスは従来どおり --sf2=PATH で指定できる。
 SF2_NAMED = {
@@ -86,8 +89,12 @@ for a in sys.argv:
         PCM_SHOT_SPEC = a.split("=", 1)[1].strip().lower() or "auto"
     elif a.startswith("--drum-vel-levels="):
         DRUM_VEL_LEVELS = max(1, min(8, int(a.split("=", 1)[1])))
+    elif a.startswith("--drum-samples="):
+        DRUM_SAMPLES = a.split("=", 1)[1]
 if len(argv) < 2:
-    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--soundfont=generaluser|fluidr3|default] [--sf2=PATH] [--atten=N] [--drum-vel-levels=N]")
+    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--soundfont=generaluser|fluidr3|default] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N]")
+if DRUM_SAMPLES is not None and PSG_DRUMS:
+    sys.exit("--drum-samples needs PCM drums; it cannot be combined with --psg-drums")
 if "--pcm-drums" in sys.argv and PSG_DRUMS:
     sys.exit("--pcm-drums and --psg-drums cannot be combined")
 if PCM_DRUMS and USE_FM6:
@@ -921,8 +928,23 @@ def resample_linear(samples, in_rate, out_rate):
             result.append(samples[-1])
     return result
 
+def render_sample_drum_float(notes, velocity):
+    """--drum-samples: ノート別 WAV を FluidSynth 出力と同じ整形・レートへ揃える。"""
+    parts = []
+    for note in notes:
+        path = os.path.join(DRUM_SAMPLES, f"{note}.wav")
+        if not os.path.exists(path):
+            raise SystemExit(f"--drum-samples: no sample for drum note {note}: {path}")
+        rate, samples = read_wav_mono(path)
+        gain = (velocity / 127.0) ** 2
+        samples = [v * gain for v in trim_audio(samples, rate, (note,))]
+        parts.append(resample_linear(samples, rate, PCM_RATE))
+    return mix_float_parts(parts)
+
 def render_drum_float(notes, preset=None, velocity=112):
     notes = drum_key(notes)
+    if DRUM_SAMPLES is not None:
+        return render_sample_drum_float(notes, velocity)
     fs = shutil.which("fluidsynth")
     if fs is None:
         raise SystemExit("PCM drums require fluidsynth. Install: sudo apt-get install fluidsynth fluid-soundfont-gm")

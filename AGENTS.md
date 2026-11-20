@@ -21,6 +21,7 @@ Drive / Genesis style music.
 
 - Python 3.10+ is enough for non-PCM conversion.
 - Default PCM drums and `--pcm-shot` require FluidSynth and a GM SoundFont.
+  `--drum-samples=DIR` replaces the SoundFont drums with per-note WAV files.
 - SGDK `rescomp` / `xgmtool` are optional downstream tools for VGM to XGM/XGM2
   integration.
 

@@ -14,6 +14,7 @@ MIDI を Sega Mega Drive / Genesis 向けの VGM に変換する Python ツー�
 - GM プログラム、音域、音数から MIDI パートを YM2612 FM / SN76489 PSG へ自動割り当て
 - 通常は FM を最大 5ch に抑え、FM6/DAC を空ける構成
 - MIDI ch10 のドラムを既定で FluidSynth + SoundFont から PCM 化
+- `--drum-samples=DIR` でノート番号別の WAV をドラム音源にし、FluidSynth なしで PCM 化
 - ch10 のプログラムチェンジを SoundFont のドラムキット（Standard / Room / Power / 808 / Jazz など）へ自動対応し、曲中のキット切替も追従
 - ドラムのベロシティを数段階に量子化し、強弱を PCM に反映（`--drum-vel-levels`）
 - `--pcm-shot` で短い装飾音パートを PCM ワンショットとして薄く追加
@@ -30,7 +31,8 @@ sudo apt-get update
 sudo apt-get install -y python3 fluidsynth fluid-soundfont-gm
 ```
 
-PCM ドラムを使わず `--psg-drums` だけで変換する場合は Python 3.10+ だけで動きます。
+PCM ドラムを使わず `--psg-drums` だけで変換する場合や、`--drum-samples=DIR` でドラム波形を
+渡す場合は Python 3.10+ だけで動きます（`--pcm-shot` は FluidSynth が必要）。
 
 ```sh
 sudo apt-get install -y python3
@@ -130,6 +132,12 @@ python3 scripts/genvgm.py /path/to/02_introduction.mid out/02_introduction.vgm \
   該当ファイルが見つからない場合はエラーで知らせます。
 - `--sf2=PATH`
   FluidSynth で使う SoundFont を任意パスで指定します（`--soundfont` より細かく指定したいとき）。
+- `--drum-samples=DIR`
+  PCM ドラムを SoundFont ではなく `DIR/<GMノート番号>.wav`（例: `35.wav` `42.wav`）から作ります。
+  モノラル/ステレオの 16bit PCM WAV を受け付け、出力レートへ変換します。曲が使うドラムノートの
+  WAV がすべて必要で、無い場合はノート番号を示してエラーにします。ベロシティは `(v/127)^2` の
+  音量として反映し、キット切替（ch10 のプログラムチェンジ）は無視します。元ゲームの音源から
+  取り出したドラムを使う場合などに向きます。`--psg-drums` とは併用できません。
 
 ## MIDI から FM パッチへの変換
 
