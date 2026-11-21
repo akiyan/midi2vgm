@@ -19,17 +19,28 @@ PSG の制約への対応:
   - ノイズは drums（ch10）を kick/snare/hat に振り分けて短く鳴らす。
 
 使い方:
-  genpsg.py IN.mid OUT.vgm [--tone0=SPEC] [--tone1=SPEC] [--tone2=SPEC] [--noise=drums]
-                           [--floor=N] [--ceil=N]
+  genpsg.py IN.mid OUT.vgm [--gg] [--tone0=SPEC] [--tone1=SPEC] [--tone2=SPEC]
+                           [--noise=drums] [--floor=N] [--ceil=N]
+  genpsg.py IN.mid OUT.psg --gg [--compress] [チャンネル指定など]
     SPEC = <midi_ch(1始まり)>[:decay=pluck|soft|sustain][:oct=±N][:vib][:atten=N]
     引数省略時は自動選定（bass + 音符数上位2）。
 """
-import math, os, struct, sys
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import psg_voice as pv
 
 PSG_CLOCK = pv.PSG_CLOCK
 SR = 44100
+FRAME_RATE = 60
+FRAME_SAMPLES = SR // FRAME_RATE
+# psgcomp searches and moves substring data ahead of the logical end of its
+# fixed 64 KiB buffer. Leave room for two maximum-length matches (51 bytes).
+PSGCOMP_MAX_INPUT = 64 * 1024 - 2 * 51
 DRUM_CH = 9                 # MIDI ch10（0始まり 9）
 PITCH_FLOOR = pv.PITCH_FLOOR  # PSG 下限の目安（A2≒110Hz）。これ未満はオクターブ上げ。
 PITCH_CEIL = pv.PITCH_CEIL    # これ超はオクターブ下げ（極端な高音の暴れ防止）。
@@ -39,8 +50,15 @@ argv = [a for a in sys.argv[1:] if not a.startswith("--")]
 opts = {a.split("=", 1)[0][2:]: (a.split("=", 1)[1] if "=" in a else "")
         for a in sys.argv[1:] if a.startswith("--")}
 if len(argv) < 2:
-    sys.exit("usage: genpsg.py IN.mid OUT.vgm [--tone0=SPEC] [--tone1=SPEC] [--tone2=SPEC] [--noise=drums]")
+    sys.exit("usage: genpsg.py IN.mid OUT.vgm [--gg] [--tone0=SPEC] [--tone1=SPEC] "
+             "[--tone2=SPEC] [--noise=drums]\n"
+             "       genpsg.py IN.mid OUT.psg --gg [--compress] [channel options]")
 MID, OUT = argv[0], argv[1]
+gg_timing = "gg" in opts
+psg_output = gg_timing and Path(OUT).suffix.lower() == ".psg"
+compress = "compress" in opts
+if compress and not psg_output:
+    sys.exit("--compress requires --gg with a .psg output file")
 PITCH_FLOOR = int(opts.get("floor", PITCH_FLOOR))
 PITCH_CEIL = int(opts.get("ceil", PITCH_CEIL))
 
@@ -198,9 +216,12 @@ def fold_pitch(m):
 # ============ VGM 生成 ============
 body = bytearray()
 def psg(b): body.extend((0x50, b & 0xFF))
+
 def wait(samples):
+    # Split long waits at whole-frame boundaries for vgm2psg.
+    max_wait = (0xFFFF // FRAME_SAMPLES) * FRAME_SAMPLES if gg_timing else 0xFFFF
     while samples > 0:
-        n = min(samples, 65535)
+        n = min(samples, max_wait)
         body.extend((0x61, n & 0xFF, (n >> 8) & 0xFF)); samples -= n
 
 def u32(v):
@@ -283,9 +304,15 @@ t0 = actions[0][0] if actions else 0
 cur = 0
 for samp, _, fn in actions:
     samp -= t0
+    if gg_timing:
+        samp = ((samp + FRAME_SAMPLES // 2) // FRAME_SAMPLES) * FRAME_SAMPLES
     if samp > cur:
         wait(samp - cur); cur = samp
     fn()
+if gg_timing and cur == 0:
+    # PSGlib must encounter a wait before it can return from a looping track.
+    wait(FRAME_SAMPLES)
+    cur = FRAME_SAMPLES
 total_samples = cur; loop_samples = total_samples
 body.append(0x66)
 
@@ -312,15 +339,45 @@ struct.pack_into("<I", hdr, 0x0C, PSG_CLOCK)        # SN76489 クロック（MD/
 struct.pack_into("<I", hdr, 0x18, total_samples)
 struct.pack_into("<I", hdr, 0x1C, (DATA_OFF + loop_pos) - 0x1C)
 struct.pack_into("<I", hdr, 0x20, loop_samples)
-struct.pack_into("<I", hdr, 0x24, 60)
+struct.pack_into("<I", hdr, 0x24, FRAME_RATE)
 struct.pack_into("<H", hdr, 0x28, 0x0009)           # SN76489 feedback
 hdr[0x2A] = 16                                       # SN76489 shift register width
 struct.pack_into("<I", hdr, 0x2C, 0)                # YM2612 クロック = 0（FM 不使用）
 struct.pack_into("<I", hdr, 0x14, gd3_pos - 0x14)
 struct.pack_into("<I", hdr, 0x34, DATA_OFF - 0x34)
 
-open(OUT, "wb").write(bytes(hdr) + bytes(body) + gd3)
-print(f"{OUT}: dur={total_samples/SR:.1f}s bytes={total_len}")
+
+def run_psg_tool(name, source, destination):
+    try:
+        subprocess.run([name, source, destination], check=True, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        sys.exit(f"{name} is required on PATH for this GG output")
+    except subprocess.CalledProcessError as error:
+        sys.exit(f"{name} failed (exit {error.returncode}):\n{error.stdout.rstrip()}")
+
+
+def make_psglib(vgm):
+    with tempfile.TemporaryDirectory(prefix="midi2vgm-") as directory:
+        source = Path(directory) / "source.vgm"
+        raw = Path(directory) / "raw.psg"
+        source.write_bytes(vgm)
+        run_psg_tool("vgm2psg", source, raw)
+        if not compress:
+            return raw.read_bytes()
+        if raw.stat().st_size > PSGCOMP_MAX_INPUT:
+            sys.exit(f"PSG stream exceeds the {PSGCOMP_MAX_INPUT}-byte psgcomp input limit. "
+                     "Omit --compress for this track.")
+        packed = Path(directory) / "packed.psg"
+        run_psg_tool("psgcomp", raw, packed)
+        return packed.read_bytes()
+
+
+output = bytes(hdr) + bytes(body) + gd3
+if psg_output:
+    output = make_psglib(output)
+Path(OUT).write_bytes(output)
+print(f"{OUT}: dur={total_samples/SR:.1f}s bytes={len(output)}")
 print(f"  tone: " + ", ".join(f"pc{pc}=ch{'+'.join(str(c+1) for c in chs)}({cfg['decay']}"
                                f"{'+vib' if cfg['vib'] else ''}{',oct%+d'%cfg['oct'] if cfg['oct'] else ''})"
                                for pc, chs, cfg in used_tone))

@@ -246,6 +246,24 @@ python3 scripts/genpsg.py /path/to/song.mid out/song_psg.vgm \
 
 複数チャンネルをまとめた場合は高い音を優先し、メロディの受け渡しで無音になりにくくします。
 
+### Game Gear向けの60 Hz出力
+
+`--gg` を付けると、曲頭からのイベント時刻を最も近い60 Hzのフレームに丸めます。
+待ち時間を個別に丸めたときのテンポのずれを防ぎ、同じフレームに入る書き込みをまとめます。
+パート割り当て、ビブラート、減衰の設定はそのまま使えます。
+
+```sh
+python3 scripts/genpsg.py song.mid song.vgm --gg
+python3 scripts/genpsg.py song.mid song.psg --gg
+python3 scripts/genpsg.py song.mid song.psg --gg --compress
+```
+
+`.vgm` はPythonだけで出力できます。`.psg` には `vgm2psg`、`--compress` にはさらに `psgcomp` を
+`PATH` に置いてください。`--compress` は展開時に元のPSGlib命令列を復元するので、ROM容量と展開時の
+CPU負荷を見比べて曲ごとに選べます。`--compress` は `psgcomp` の固定長バッファに収まるよう、圧縮前の
+データが65,434バイトまでの曲に使えます。
+バンクをまたぐ曲を `PSGlib_MB` で再生するときは、曲を16 KiBバンクの先頭から連続したバンクに配置します。
+
 ## SGDK / XGM への組み込み
 
 SGDK の `.res` では、生成済み VGM を次のように参照できます。
