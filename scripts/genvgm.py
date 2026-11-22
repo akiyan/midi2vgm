@@ -18,7 +18,7 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                                    （ブラス/リード/弦/パイプ＝それぞれ別倍音構成）
   和音は各プール内でボイス割当（空き無ければ最古を奪う）。ループ点は曲頭。
 
-  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--soundfont=NAME] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N]
+  使い方: python3 scripts/genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--soundfont=NAME] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N] [--no-bass] [--no-loop]
     --no-psg : PSG を一切使わず旋律パートを FM へ割り当てる（--psg-drums 併用時はドラム省略）。
     ch10 ドラムは既定で FluidSynth+SoundFont 由来の VGM stream PCM として出力する
     --psg-drums: ch10 ドラムを PSG ノイズで出力する。
@@ -32,6 +32,9 @@ GM プログラム/音域で分類して、FM6ch と PSG(矩形3ch+ノイズ1ch)
                1 ステップ約0.75dB。例: 6≒-4.5dB, 8≒-6dB）。
     --pcm-shot=auto|ch,ch...|auto+ch...: 短い装飾音パートを自動/手動選択し、空きPCM chへ薄く重ねる。
                                          chはMIDIの1始まり。
+    --no-bass: 最低音域のパートをベース（FM 1ch の単音）にせず、音色どおりに和音で鳴らす。
+               1パートだけのジングルなど、その和音がベース扱いで潰れる曲に使う。
+    --no-loop: ループ点を書かない。1回だけ鳴って終わる（ジングル用）。
     --drum-vel-levels=N: ドラムのベロシティ量子化段階数(1..8, 既定4。1=ベロシティ無効)。
                          多いほど強弱の表情が豊かになるが、各段が別 PCM サンプルになり容量が増える。
 """
@@ -44,6 +47,8 @@ NOPSG = "--no-psg" in sys.argv
 PSG_DRUMS = "--psg-drums" in sys.argv
 PCM_DRUMS = not PSG_DRUMS
 USE_FM6 = "--fm6" in sys.argv
+NO_BASS = "--no-bass" in sys.argv     # 最低音域のパートもベースにしない
+NO_LOOP = "--no-loop" in sys.argv     # ループ点なし（1回再生）
 BELL_PSG = "--bell-psg" in sys.argv   # bell(オルゴール)主旋律に PSG 矩形を同音ユニゾンで重ねる
 ATTEN = 0
 PCM_SHOT_SPEC = ""
@@ -92,7 +97,7 @@ for a in sys.argv:
     elif a.startswith("--drum-samples="):
         DRUM_SAMPLES = a.split("=", 1)[1]
 if len(argv) < 2:
-    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--soundfont=generaluser|fluidr3|default] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N]")
+    sys.exit("usage: genvgm.py IN.mid OUT.vgm [--no-psg] [--psg-drums] [--fm6] [--bell-psg] [--pcm-shot=auto|midi_ch,midi_ch...|auto+midi_ch...] [--soundfont=generaluser|fluidr3|default] [--sf2=PATH] [--drum-samples=DIR] [--atten=N] [--drum-vel-levels=N] [--no-bass] [--no-loop]")
 if DRUM_SAMPLES is not None and PSG_DRUMS:
     sys.exit("--drum-samples needs PCM drums; it cannot be combined with --psg-drums")
 if "--pcm-drums" in sys.argv and PSG_DRUMS:
@@ -545,7 +550,7 @@ def gm_name(p):
     return GM_NAMES[p] if 0 <= p < len(GM_NAMES) else "Unknown"
 
 # ============ エンジン/プール割り当て ============
-bass_ch = min(mel, key=lambda c: avgp[c]) if mel else None
+bass_ch = min(mel, key=lambda c: avgp[c]) if mel and not NO_BASS else None
 non_bass = sorted([c for c in mel if c != bass_ch], key=lambda c: -avgp[c])  # 高音→低音
 
 # 持続低音（パッド/ロングトーンのベース）判定: bass パッチはプラック向けの二段減衰(D2R>0)なので、
@@ -1565,8 +1570,9 @@ struct.pack_into("<I", hdr, 0x04, total_len - 4)
 struct.pack_into("<I", hdr, 0x08, 0x00000150)
 struct.pack_into("<I", hdr, 0x0C, PSG_CLOCK)
 struct.pack_into("<I", hdr, 0x18, total_samples)
-struct.pack_into("<I", hdr, 0x1C, (DATA_OFF + loop_pos) - 0x1C)
-struct.pack_into("<I", hdr, 0x20, loop_samples)
+if not NO_LOOP:                                # VGM はループ位置 0 が「ループなし」
+    struct.pack_into("<I", hdr, 0x1C, (DATA_OFF + loop_pos) - 0x1C)
+    struct.pack_into("<I", hdr, 0x20, loop_samples)
 struct.pack_into("<I", hdr, 0x24, 60)
 struct.pack_into("<H", hdr, 0x28, 0x0009)
 hdr[0x2A] = 16

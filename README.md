@@ -127,6 +127,12 @@ python3 scripts/genvgm.py /path/to/02_introduction.mid out/02_introduction.vgm \
 - `--atten=N`
   FM オペレータの TL に `N` を加えて音量を下げます。TL は大きいほど小音量です。
   `6` が扱いやすい初期値です。
+- `--no-bass`
+  最低音域のパートをベース（FM 1ch の単音）にしません。既定では旋律パートが 1 つでもベース扱いに
+  なるため、1 パートだけの和音のジングルは最後の 1 音に潰れます。そうした曲で指定すると、
+  GM 音色のパッチで和音として鳴ります。
+- `--no-loop`
+  ループ点を書きません。1 回だけ鳴らすジングル用です。
 - `--soundfont=NAME`
   SoundFont を別名で選びます。`generaluser`（`gu`）、`fluidr3`（`fluid`）、`default` に対応。
   該当ファイルが見つからない場合はエラーで知らせます。
