@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This repository contains standalone MIDI to VGM conversion tools for Sega Mega
-Drive / Genesis style music.
+Drive / Genesis style music, Game Gear PSG and MSX OPLL + PSG.
 
 ## Scope
 
@@ -15,6 +15,7 @@ Drive / Genesis style music.
 
 - Main converter: `python3 scripts/genvgm.py IN.mid OUT.vgm`.
 - PSG-only converter: `python3 scripts/genpsg.py IN.mid OUT.vgm`.
+- MSX converter (YM2413 OPLL + AY-3-8910): `python3 scripts/genopll.py IN.mid OUT.vgm`.
 - Shared PSG expression helpers live in `scripts/psg_voice.py`.
 
 ## Dependencies

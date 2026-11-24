@@ -21,6 +21,7 @@ MIDI を Sega Mega Drive / Genesis 向けの VGM に変換する Python ツー�
 - `--fm6 --psg-drums` で FM6 まで使い、ドラムを PSG ノイズ化
 - `--bell-psg` でオルゴール系主旋律へ PSG 矩形ユニゾンを追加
 - `genpsg.py` で SN76489 PSG 専用 VGM を生成
+- `genopll.py` で MSX 向けの YM2413（OPLL、MSX-MUSIC）+ AY-3-8910（PSG）VGM を生成
 
 ## 必要なもの
 
@@ -270,6 +271,26 @@ CPU負荷を見比べて曲ごとに選べます。`--compress` は `psgcomp` �
 データが65,434バイトまでの曲に使えます。
 バンクをまたぐ曲を `PSGlib_MB` で再生するときは、曲を16 KiBバンクの先頭から連続したバンクに配置します。
 
+## MSX 向け OPLL + PSG VGM
+
+`genopll.py` は MSX の FM 音源 MSX-MUSIC（YM2413、OPLL）と PSG（AY-3-8910）だけを使う VGM を生成します。
+VGM の YM2413（コマンド `0x51`、ヘッダ `0x10` にクロック）と AY8910（`0xA0`、ヘッダ `0x74`）を使うので、
+libvgm の `vgm2wav` などでそのまま試聴できます。Python 標準ライブラリだけで動きます。
+
+```sh
+python3 scripts/genopll.py 入力.mid 出力_opll.vgm
+```
+
+- **FM**：旋律は9ch。ch10 のドラムがある曲はリズムモード（BD/SD/TOM/CYM/HH の FM ドラム）にして、旋律は6chになります。
+- **音色**：GM プログラムを OPLL の内蔵15音色へ写します。ストリングスやパッドなど内蔵に近いものがない音色は、自作音色1つにまとめます
+  （`--user=strings|pad|brass|bass`）。
+- **割り当て**：各パートは同時発音数ぶんの FM チャンネルを専有します。
+  - 入りきらない単音パートは、PSG の矩形3chへ回します。
+  - 同じ音を重ねただけのチャンネル（一定のティック差のエコーや、オクターブ違いを含む）は FM に入れず、PSG に余りがあれば少し小さく重ねます。
+- **反映するもの**：音量（ベロシティ、CC7、CC11 を 40log10 で dB にし、3dB 刻みの減衰へ）、ピッチベンド（±2半音）、ダンパー（CC64）。
+- **固定と調整**：割り当ては `--fm=CH,...` / `--psg=CH,...` / `--drop=CH,...` で固定でき、音色は `--prog=CH:N`（N は OPLL の音色番号、0 は自作音色）で替えられます。
+  全体の音量は `--atten=N`、PSG の音量は `--psg-atten=N`（既定2）で調整します。
+
 ## SGDK / XGM への組み込み
 
 SGDK の `.res` では、生成済み VGM を次のように参照できます。
@@ -297,6 +318,7 @@ XGM2 bgm02 "bgm/02_introduction.vgm"
 scripts/
   genvgm.py     MIDI -> YM2612 + SN76489 VGM
   genpsg.py     MIDI -> SN76489 専用 VGM
+  genopll.py    MIDI -> YM2413 (OPLL) + AY-3-8910 VGM（MSX）
   psg_voice.py  PSG の減衰、ビブラート、オクターブ折り返し処理
 assets/midi/
   adjustments.txt  元プロジェクトの曲別調整例
