@@ -15,10 +15,14 @@ OPLL の制約への対応:
   - 各パートは同時発音数ぶんの FM チャンネルを専有する（音色の切り替えを避ける）。FM に入らない
     単音パートは PSG（矩形 3ch、エンベロープはソフトで段階制御）へ回し、それでも余るパートは鳴らさない。
   - ピッチベンド（±2 半音）とダンパー（CC64）を反映する。モジュレーション・パン・エフェクトは使わない。
+  - 曲頭の無音を削る（genvgm.py / genpsg.py と同じく、初期化の後の最初のイベントを 0 に寄せる）。
+    MIDI の頭のセットアップ用の小節（リセットや音色の設定だけで 1〜3 秒）を待たずに鳴り始め、
+    ループ点は初期化の直後（曲頭）。--keep-lead-in で MIDI どおりの時刻のままにする。
 
 使い方:
   genopll.py IN.mid OUT.vgm [--fm=CH,CH...] [--psg=CH,CH...] [--drop=CH,...] [--no-rhythm]
                            [--user=strings|pad|brass|bass] [--prog=CH:OPLL] [--psg-atten=N] [--atten=N]
+                           [--keep-lead-in]
     CH は MIDI チャンネル（1 始まり）。--fm / --psg で割り当てを固定、--prog=CH:N で OPLL 音色 N（0=自作）。
 """
 import math
@@ -351,6 +355,7 @@ if rhythm:
 ay(0, 7, 0xB8)                                   # tones on, noise off; MSX: port B out, port A in
 for r in (8, 9, 10):
     ay(0, r, 0)
+INIT = len(actions)                              # the writes above come first; the song's events follow
 
 def bent(ch, s, midi):
     return midi + value_at(bend[ch], s) / 8192 * BEND_RANGE
@@ -429,23 +434,24 @@ if rhythm:
         opll(s, 0x0E, 0x20)
         opll(s, 0x0E, 0x20 | (1 << bit))
 
-actions.sort(key=lambda a: (a[0], a[1]))
 body = bytearray()
 def wait(samples):
     while samples > 0:
         n = min(samples, 0xFFFF)
         body.extend((0x61, n & 0xFF, n >> 8)); samples -= n
 
-loop_pos = None
+# 書き出し（初期化、ループ点 = 初期化直後 = 曲頭、曲のイベントは曲頭の無音を削って最初のイベントを 0 に寄せる）
+for _, _, kind, a, b in actions[:INIT]:
+    body.extend((kind, a, b))
+loop_pos = len(body)
+events = sorted(actions[INIT:], key=lambda a: (a[0], a[1]))
+t0 = events[0][0] if events and "keep-lead-in" not in opts else 0
 cur = 0
-for samp, _, kind, a, b in actions:
+for samp, _, kind, a, b in events:
+    samp -= t0
     if samp > cur:
-        if loop_pos is None:
-            loop_pos = len(body)
         wait(samp - cur); cur = samp
     body.extend((kind, a, b))
-if loop_pos is None:
-    loop_pos = 0
 total_samples = cur
 body.append(0x66)
 
